@@ -1,0 +1,16 @@
+/.cache/
+/.tools/
+/build/bin/
+/frontend/dist/
+*.syso
+
+/dist/
+
+# 本地编辑器、用户数据和凭据不进入源码仓库。
+.idea/
+.vscode/
+*.user
+*.log
+.env
+.env.*
+!.env.example

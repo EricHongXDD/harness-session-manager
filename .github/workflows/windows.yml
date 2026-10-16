@@ -1,0 +1,99 @@
+name: Windows build and release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            third_party/wails-v2/go.sum
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Check release version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          $version=(Get-Content wails.json -Encoding UTF8 | ConvertFrom-Json).info.productVersion
+          if($env:REF_TYPE -eq 'tag' -and $env:REF_NAME -ne "v$version"){throw '标签必须与 wails.json 版本一致'}
+      - name: Build pinned Wails CLI
+        run: ./scripts/setup-build-tools.ps1
+      - name: Test
+        run: ./scripts/test.ps1
+      - name: Build Windows executable
+        run: ./scripts/build.ps1
+      - name: Verify production executable with synthetic data
+        run: node tests/preview-smoke.mjs
+      - name: Package executable and ZIP
+        run: ./scripts/package.ps1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: HarnessSessionManager-windows-amd64
+          path: |
+            dist/HarnessSessionManager-*.exe
+            dist/HarnessSessionManager-*-windows-amd64.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: HarnessSessionManager-windows-amd64
+          path: release-assets
+      - name: Verify checksums and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd release-assets && sha256sum --check SHA256SUMS.txt)
+          notes="docs/releases/${RELEASE_TAG}.md"
+          if [ ! -f "$notes" ]; then
+            notes="$RUNNER_TEMP/release-notes.md"
+            printf 'Windows x64 build for %s. Download the ZIP or standalone EXE; SHA256SUMS.txt contains both checksums.\n' "$RELEASE_TAG" > "$notes"
+          fi
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Harness Session Manager ${RELEASE_TAG}" --notes-file "$notes"
+          fi
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest
