@@ -2,6 +2,7 @@
 /.tools/
 /build/bin/
 /frontend/dist/
+/frontend/wailsjs/
 *.syso
 
 /dist/

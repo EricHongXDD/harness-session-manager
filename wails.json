@@ -1,0 +1,6 @@
+{
+  "$schema":"https://wails.io/schemas/config.v2.json",
+  "name":"harness-session-manager","outputfilename":"HarnessSessionManager",
+  "frontend:dir":"frontend", "author":{"name":"Harness Session Manager"},
+  "info":{"companyName":"Harness Session Manager","productName":"Harness Session Manager","productVersion":"0.3.1","comments":"独立本地会话与空间管理工具"}
+}
